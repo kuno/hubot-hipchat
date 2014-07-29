@@ -9,6 +9,7 @@ class HipChat extends Adapter
   constructor: (robot) ->
     super robot
     @logger = robot.logger
+    reconnectTimer = null
 
   emote: (envelope, strings...) ->
     @send envelope, strings.map((str) -> "/me #{str}")...
@@ -56,15 +57,28 @@ class HipChat extends Adapter
     user = if envelope.user then envelope.user else envelope
     @send envelope, "@#{user.mention_name} #{str}" for str in strings
 
+  waitAndReconnect: ->
+    if !@reconnectTimer
+      # Randomly wait between 5 and 20 seconds
+      delay = Math.round(Math.random() * (20 - 5) + 5)
+      @logger.info "Waiting #{delay}s and then retrying..."
+      @reconnectTimer = setTimeout () =>
+         @logger.info "Attempting to reconnect..."
+         delete @reconnectTimer
+         @run()
+      , delay * 1000
+
   run: ->
     @options =
-      jid:        process.env.HUBOT_HIPCHAT_JID
-      password:   process.env.HUBOT_HIPCHAT_PASSWORD
-      token:      process.env.HUBOT_HIPCHAT_TOKEN or null
-      rooms:      process.env.HUBOT_HIPCHAT_ROOMS or "All"
-      host:       process.env.HUBOT_HIPCHAT_HOST or null
-      autojoin:   process.env.HUBOT_HIPCHAT_JOIN_ROOMS_ON_INVITE isnt "false"
+      jid: process.env.HUBOT_HIPCHAT_JID
+      password: process.env.HUBOT_HIPCHAT_PASSWORD
+      token: process.env.HUBOT_HIPCHAT_TOKEN or null
+      rooms: process.env.HUBOT_HIPCHAT_ROOMS or "All"
+      rooms_blacklist: process.env.HUBOT_HIPCHAT_ROOMS_BLACKLIST or ""
+      host: process.env.HUBOT_HIPCHAT_HOST or null
+      autojoin: process.env.HUBOT_HIPCHAT_JOIN_ROOMS_ON_INVITE isnt "false"
       xmppDomain: process.env.HUBOT_HIPCHAT_XMPP_DOMAIN or null
+      reconnect: process.env.HUBOT_HIPCHAT_RECONNECT isnt "false"
 
     @logger.debug "HipChat adapter options: #{JSON.stringify @options}"
 
@@ -79,6 +93,18 @@ class HipChat extends Adapter
     @logger.info "Connecting HipChat adapter..."
 
     init = promise()
+
+    connector.onDisconnect =>
+      @logger.info "Disconnected from #{host}"
+
+      if @options.reconnect
+        @waitAndReconnect()
+
+    connector.onError =>
+      @logger.error [].slice.call(arguments).map(inspect).join(", ")
+
+      if @options.reconnect
+        @waitAndReconnect()
 
     connector.onConnect =>
       @logger.info "Connected to #{host} as @#{connector.mention_name}"
@@ -98,6 +124,16 @@ class HipChat extends Adapter
             delete @robot.brain.data.users[user.id]
           @robot.brain.userForId user.id, user
 
+      joinRoom = (jid) =>
+        blacklisted_room_jids = @options.rooms_blacklist.split ","
+
+        if jid in blacklisted_room_jids
+          @logger.info "Not joining #{jid} because it is blacklisted"
+          return
+
+        @logger.info "Joining #{jid}"
+        connector.join jid
+
       # Fetch user info
       connector.getRoster (err, users, stanza) =>
         return init.reject err if err
@@ -111,15 +147,13 @@ class HipChat extends Adapter
             connector.getRooms (err, rooms, stanza) =>
               if rooms
                 for room in rooms
-                  @logger.info "Joining #{room.jid}"
-                  connector.join room.jid
+                  joinRoom(room.jid)
               else
                 @logger.error "Can't list rooms: #{errmsg err}"
           # Join all rooms
           else
             for room_jid in @options.rooms.split ","
-              @logger.info "Joining #{room_jid}"
-              connector.join room_jid
+              joinRoom(room_jid)
         .fail (err) =>
           @logger.error "Can't list users: #{errmsg err}" if err
 
@@ -176,16 +210,10 @@ class HipChat extends Adapter
       connector.onLeave (user_jid, room_jid) ->
         changePresence LeaveMessage, user_jid, room_jid
 
-      connector.onDisconnect =>
-        @logger.info "Disconnected from #{host}"
-
-      connector.onError =>
-        @logger.error [].slice.call(arguments).map(inspect).join(", ")
-
       connector.onInvite (room_jid, from_jid, message) =>
         action = if @options.autojoin then "joining" else "ignoring"
         @logger.info "Got invite to #{room_jid} from #{from_jid} - #{action}"
-        connector.join room_jid if @options.autojoin
+        joinRoom(room_jid) if @options.autojoin
 
     connector.connect()
 
