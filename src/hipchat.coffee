@@ -72,7 +72,7 @@ class HipChat extends Adapter
   run: ->
     @options =
       jid: process.env.HUBOT_HIPCHAT_JID
-      password: process.env.HUBOT_HIPCHAT_PASSWORD
+      password: deHtml(process.env.HUBOT_HIPCHAT_PASSWORD)  # Better on client ?
       token: process.env.HUBOT_HIPCHAT_TOKEN or null
       rooms: process.env.HUBOT_HIPCHAT_ROOMS or "All"
       rooms_blacklist: process.env.HUBOT_HIPCHAT_ROOMS_BLACKLIST or ""
@@ -86,7 +86,7 @@ class HipChat extends Adapter
     # create Connector object
     connector = new Connector
       jid: @options.jid
-      password: deHtml(@options.password)
+      password: @options.password
       host: @options.host
       logger: @logger
       xmppDomain: @options.xmppDomain
