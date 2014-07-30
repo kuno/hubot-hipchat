@@ -10,3 +10,11 @@ exports.require = (name, quiet) ->
   if quiet
     console[k] = v for own k, v of orig
   mod
+
+exports.deHtml = (unsafe) ->
+  return unsafe
+         .replace(/&amp;/g, "&")
+         .replace(/&lt;/g, "<")
+         .replace(/&gt;/g, ">")
+         .replace(/&quot;/g, "\"")
+         .replace(/&#039;/g, "'")

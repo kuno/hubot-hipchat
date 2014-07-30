@@ -1,6 +1,7 @@
 {Adapter, TextMessage, EnterMessage, LeaveMessage, User} = require "hubot"
 HTTPS = require "https"
 {inspect} = require "util"
+{_, deHtml} = require "./util"
 Connector = require "./connector"
 promise = require "./promises"
 
@@ -85,7 +86,7 @@ class HipChat extends Adapter
     # create Connector object
     connector = new Connector
       jid: @options.jid
-      password: @options.password
+      password: deHtml(@options.password)
       host: @options.host
       logger: @logger
       xmppDomain: @options.xmppDomain
